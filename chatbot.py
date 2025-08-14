@@ -1,9 +1,5 @@
 import streamlit as st
 from PyPDF2 import PdfReader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
 import re
 
 # Custom CSS for attractive header only - Updated
@@ -54,20 +50,18 @@ if file is not None and not st.session_state.processed:
         for pages in pdf_reader.pages:
             text+=pages.extract_text()
         
-        #breaking it into chunks 
-        text_splitter = RecursiveCharacterTextSplitter(
-            separators=["\n"],
-            chunk_size=1000,
-            chunk_overlap=150,
-            length_function=len
-        )
-        st.session_state.chunks = text_splitter.split_text(text)
-        
-        #embeddings using simple TF-IDF (no PyTorch issues)
-        st.session_state.vectorizer = TfidfVectorizer()
-        st.session_state.chunk_vectors = st.session_state.vectorizer.fit_transform(st.session_state.chunks)
-        
-        # Mark as processed
+        #breaking it into chunks (simple approach)
+def simple_chunk_text(text, chunk_size=1000, overlap=150):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+        chunks.append(chunk)
+        start = end - overlap
+    return chunks
+
+st.session_state.chunks = simple_chunk_text(text)
         st.session_state.processed = True
         
     st.success("✅ Document processed! You can now ask multiple questions.")
@@ -83,17 +77,23 @@ if st.session_state.processed:
     
     if user_question:
         # Convert question to vector and find similar chunks
-        question_vector = st.session_state.vectorizer.transform([user_question])
-        similarities = cosine_similarity(question_vector, st.session_state.chunk_vectors)
-        
-        # Get top 3 most similar chunks
-        top_indices = similarities[0].argsort()[-3:][::-1]
-        relevant_chunks = [st.session_state.chunks[i] for i in top_indices if similarities[0][i] > 0]
-        
-        if relevant_chunks:
-            st.write("**🤖 Answer:**")
-            
-            # Improved answer extraction
+        # Simple text matching approach
+question_lower = user_question.lower()
+question_words = set(question_lower.split())
+
+chunk_scores = []
+for i, chunk in enumerate(st.session_state.chunks):
+    chunk_lower = chunk.lower()
+    chunk_words = set(chunk_lower.split())
+    # Count matching words
+    matches = len(question_words.intersection(chunk_words))
+    if matches > 0:
+        score = matches / len(question_words)
+        chunk_scores.append((i, score, chunk))
+
+# Sort by score and get top 3
+chunk_scores.sort(key=lambda x: x[1], reverse=True)
+relevant_chunks = [chunk for _, _, chunk in chunk_scores[:3]]
             question_lower = user_question.lower()
             question_words = set(question_lower.split())
             
